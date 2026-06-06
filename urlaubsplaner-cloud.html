@@ -15,7 +15,7 @@
                 <div class="logo-img" id="logoDisplay">🏢</div>
                 <div class="header-text">
                     <h1 id="firmennameDisplay">Urlaubsplaner</h1>
-                    <p>2027</p>
+                    <p id="yearDisplay">2027</p>
                 </div>
             </div>
         </div>
@@ -214,6 +214,7 @@
                 document.getElementById('firmennameDisplay').textContent = document.getElementById('firmenname').value;
             });
             document.getElementById('year').addEventListener('change', () => {
+                document.getElementById('yearDisplay').textContent = document.getElementById('year').value;
                 renderCalendarForMonth(currentMonth);
             });
             document.getElementById('logoUpload').addEventListener('change', handleLogoUpload);
