@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Urlaubsplaner 2027 - Cloud</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo-section">
+                <div class="logo-img" id="logoDisplay">🏢</div>
+                <div class="header-text">
+                    <h1 id="firmennameDisplay">Urlaubsplaner</h1>
+                    <p>2027</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="config-section">
+            <div class="config-title">⚙️ Konfiguration</div>
+            <div class="config-grid">
+                <div class="config-item">
+                    <label>Firmenname:</label>
+                    <input type="text" id="firmenname" value="Beispiel GmbH">
+                </div>
+                <div class="config-item">
+                    <label>Planungsjahr:</label>
+                    <input type="number" id="year" value="2027" min="2020" max="2050">
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="button-group">
+                <button onclick="openAddEmployeeModal()" class="btn-primary">+ Mitarbeiter hinzufügen</button>
+                <button onclick="downloadPDF()" class="btn-primary">💾 PDF speichern</button>
+                <button onclick="printYear()" class="btn-secondary">🖨️ Drucken</button>
+            </div>
+
+            <h2 class="year-title">Jahresplan 2027</h2>
+
+            <div class="month-tabs" id="monthTabs"></div>
+
+            <div id="calendarContainer"></div>
+
+            <div class="management-section">
+                <h2 class="section-title" onclick="toggleEmployeeList()">👥 Mitarbeiterverwaltung</h2>
+                <div class="employee-list-container" id="employeeListContainer">
+                    <div class="employee-list" id="employeeList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALS -->
+    <div class="modal" id="addEmployeeModal">
+        <div class="modal-content">
+            <h2>Mitarbeiter hinzufügen</h2>
+            <div class="form-group">
+                <label for="employeeName">Name:</label>
+                <input type="text" id="employeeName" placeholder="z.B. Max Mustermann">
+            </div>
+            <div class="form-group">
+                <label for="employeeDept">Abteilung:</label>
+                <input type="text" id="employeeDept" placeholder="z.B. Vertrieb">
+            </div>
+            <div class="form-group">
+                <label for="employeeVacationDays">Urlaubstage pro Jahr:</label>
+                <input type="number" id="employeeVacationDays" value="20" min="0" max="60">
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="addEmployee()">Hinzufügen</button>
+                <button class="btn-secondary" onclick="closeModal()">Abbrechen</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="editEmployeeModal">
+        <div class="modal-content">
+            <h2>Mitarbeiter bearbeiten</h2>
+            <div class="form-group">
+                <label for="editEmployeeName">Name:</label>
+                <input type="text" id="editEmployeeName">
+            </div>
+            <div class="form-group">
+                <label for="editEmployeeDept">Abteilung:</label>
+                <input type="text" id="editEmployeeDept">
+            </div>
+            <div class="form-group">
+                <label for="editEmployeeVacationDays">Urlaubstage pro Jahr:</label>
+                <input type="number" id="editEmployeeVacationDays" value="20" min="0" max="60">
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="saveEmployee()">Speichern</button>
+                <button class="btn-secondary" onclick="closeEditModal()">Abbrechen</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== SUPABASE =====
+        let db = null;
+        const DB_URL = 'https://sbjexeclzmktghbdeqhy.supabase.co';
+        const DB_KEY = 'sb_publishable_c5-P105ibFtFB4pyLllOMw_KBR74OYT';
+
+        async function initDB() {
+            let attempts = 0;
+            while (!window.supabase && attempts < 100) {
+                await new Promise(r => setTimeout(r, 50));
+                attempts++;
+            }
+            if (window.supabase) {
+                db = window.supabase.createClient(DB_URL, DB_KEY);
+            }
+        }
+
+        // ===== APP =====
+        let employees = [];
+        let currentMonth = new Date().getMonth();
+        let currentEditingEmployeeId = null;
+
+        async function init() {
+            await initDB();
+            await loadData();
+            renderUI();
+            setupEvents();
+            watchChanges();
+        }
+
+        async function loadData() {
+            if (!db) return;
+            try {
+                const { data: emps } = await db.from('employees').select('*').order('id');
+                const { data: vacs } = await db.from('vacation_entries').select('*');
+
+                employees = (emps || []).map(e => ({
+                    id: e.id,
+                    name: e.name,
+                    department: e.department || '',
+                    vacationDays: e.vacation_days || 20,
+                    data: {}
+                }));
+
+                (vacs || []).forEach(v => {
+                    const emp = employees.find(e => e.id === v.employee_id);
+                    if (emp) emp.data[v.entry_date] = v.status;
+                });
+
+                console.log(`✓ ${employees.length} Mitarbeiter geladen`);
+            } catch (e) {
+                console.error('Fehler beim Laden:', e.message);
+            }
+        }
+
+        function renderUI() {
+            renderMonthTabs();
+            renderCalendarForMonth(currentMonth);
+            renderEmployeeList();
+        }
+
+        function setupEvents() {
+            document.getElementById('firmenname').addEventListener('change', () => {
+                document.getElementById('firmennameDisplay').textContent = document.getElementById('firmenname').value;
+            });
+            document.getElementById('year').addEventListener('change', () => {
+                renderCalendarForMonth(currentMonth);
+            });
+        }
+
+        function watchChanges() {
+            if (!db) return;
+            db.channel('vacation_changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'vacation_entries' }, () => {
+                    console.log('Remote change detected, reloading...');
+                    loadData().then(() => renderUI());
+                })
+                .subscribe();
+        }
+
+        function renderMonthTabs() {
+            const months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+                           'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+            const container = document.getElementById('monthTabs');
+            container.innerHTML = '';
+
+            months.forEach((month, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'month-tab' + (idx === currentMonth ? ' active' : '');
+                btn.textContent = month;
+                btn.onclick = () => {
+                    document.querySelectorAll('.month-tab').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentMonth = idx;
+                    renderCalendarForMonth(idx);
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function renderCalendarForMonth(monthIndex) {
+            const year = parseInt(document.getElementById('year').value);
+            const months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+                           'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+            const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+
+            const table = document.createElement('table');
+            table.className = 'calendar-table';
+
+            // Header
+            const headerRow = table.insertRow();
+            const nameCell = headerRow.insertCell();
+            nameCell.className = 'employee-name';
+            nameCell.textContent = months[monthIndex];
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const cell = headerRow.insertCell();
+                const date = new Date(year, monthIndex, d);
+                const dayNames = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+                cell.innerHTML = `<strong>${d}</strong><br><small>${dayNames[date.getDay()]}</small>`;
+            }
+
+            // Employees
+            employees.forEach(emp => {
+                const row = table.insertRow();
+                const nameCell = row.insertCell();
+                nameCell.className = 'employee-name';
+                nameCell.textContent = emp.name;
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const date = new Date(year, monthIndex, d);
+                    const dateStr = date.toISOString().split('T')[0];
+                    const status = emp.data[dateStr] || 'normal';
+
+                    const cell = row.insertCell();
+                    if ([0, 6].includes(date.getDay())) cell.classList.add('weekend');
+
+                    const div = document.createElement('div');
+                    div.className = `day ${status}`;
+                    div.textContent = { vacation: '✓', pending: '!', sick: '✗', holiday: '●' }[status] || '';
+                    div.onclick = () => cycleStatus(emp.id, dateStr, div);
+                    cell.appendChild(div);
+                }
+            });
+
+            document.getElementById('calendarContainer').innerHTML = '';
+            const wrapper = document.createElement('div');
+            wrapper.className = 'calendar-wrapper';
+            wrapper.appendChild(table);
+            document.getElementById('calendarContainer').appendChild(wrapper);
+        }
+
+        async function cycleStatus(empId, dateStr, div) {
+            const emp = employees.find(e => e.id === empId);
+            if (!emp) return;
+
+            const current = emp.data[dateStr] || 'normal';
+            const next = { normal: 'vacation', vacation: 'pending', pending: 'sick', sick: 'normal' }[current];
+
+            emp.data[dateStr] = next;
+            div.className = `day ${next}`;
+            div.textContent = { vacation: '✓', pending: '!', sick: '✗', holiday: '●' }[next] || '';
+
+            if (!db) return;
+
+            try {
+                if (next === 'normal') {
+                    await db.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
+                } else {
+                    await db.from('vacation_entries').upsert({ employee_id: empId, entry_date: dateStr, status: next });
+                }
+            } catch (e) {
+                console.error('Fehler beim Speichern:', e.message);
+            }
+        }
+
+        function openAddEmployeeModal() {
+            document.getElementById('addEmployeeModal').classList.add('active');
+            document.getElementById('employeeName').focus();
+        }
+
+        function closeModal() {
+            document.getElementById('addEmployeeModal').classList.remove('active');
+        }
+
+        async function addEmployee() {
+            const name = document.getElementById('employeeName').value.trim();
+            const dept = document.getElementById('employeeDept').value.trim();
+            const days = parseInt(document.getElementById('employeeVacationDays').value);
+
+            if (!name) {
+                alert('Name erforderlich');
+                return;
+            }
+
+            if (!db) return;
+
+            try {
+                const { data } = await db.from('employees').insert({ name, department: dept || 'Allgemein', vacation_days: days }).select();
+                if (data && data[0]) {
+                    employees.push({
+                        id: data[0].id,
+                        name: data[0].name,
+                        department: data[0].department,
+                        vacationDays: data[0].vacation_days,
+                        data: {}
+                    });
+                }
+                renderUI();
+                closeModal();
+                document.getElementById('employeeName').value = '';
+                document.getElementById('employeeDept').value = '';
+            } catch (e) {
+                alert('Fehler: ' + e.message);
+            }
+        }
+
+        function openEditEmployeeModal(id) {
+            const emp = employees.find(e => e.id === id);
+            if (!emp) return;
+            currentEditingEmployeeId = id;
+            document.getElementById('editEmployeeName').value = emp.name;
+            document.getElementById('editEmployeeDept').value = emp.department;
+            document.getElementById('editEmployeeVacationDays').value = emp.vacationDays;
+            document.getElementById('editEmployeeModal').classList.add('active');
+        }
+
+        function closeEditModal() {
+            document.getElementById('editEmployeeModal').classList.remove('active');
+            currentEditingEmployeeId = null;
+        }
+
+        async function saveEmployee() {
+            const name = document.getElementById('editEmployeeName').value.trim();
+            const dept = document.getElementById('editEmployeeDept').value.trim();
+            const days = parseInt(document.getElementById('editEmployeeVacationDays').value);
+
+            if (!name) {
+                alert('Name erforderlich');
+                return;
+            }
+
+            if (!db) return;
+
+            try {
+                await db.from('employees').update({ name, department: dept || 'Allgemein', vacation_days: days }).eq('id', currentEditingEmployeeId);
+                const emp = employees.find(e => e.id === currentEditingEmployeeId);
+                if (emp) {
+                    emp.name = name;
+                    emp.department = dept || 'Allgemein';
+                    emp.vacationDays = days;
+                }
+                renderUI();
+                closeEditModal();
+            } catch (e) {
+                alert('Fehler: ' + e.message);
+            }
+        }
+
+        async function deleteEmployee(id) {
+            if (!confirm('Mitarbeiter löschen?')) return;
+            if (!db) return;
+
+            try {
+                await db.from('employees').delete().eq('id', id);
+                employees = employees.filter(e => e.id !== id);
+                renderUI();
+            } catch (e) {
+                alert('Fehler: ' + e.message);
+            }
+        }
+
+        function toggleEmployeeList() {
+            const container = document.getElementById('employeeListContainer');
+            container.classList.toggle('active');
+            document.querySelector('.section-title').classList.toggle('expanded');
+        }
+
+        function renderEmployeeList() {
+            const list = document.getElementById('employeeList');
+            list.innerHTML = '';
+
+            employees.forEach(emp => {
+                const vac = Object.values(emp.data).filter(s => s === 'vacation').length;
+                const card = document.createElement('div');
+                card.className = 'employee-card';
+                card.innerHTML = `
+                    <div class="employee-info">
+                        <h3>${emp.name}</h3>
+                        <p>${emp.department}</p>
+                        <div class="employee-stats">
+                            <div class="stat">Urlaub: <span class="stat-value">${vac}/${emp.vacationDays}</span></div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 8px; flex-direction: column;">
+                        <button style="background: #027c45; color: white; padding: 6px 10px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer;" onclick="openEditEmployeeModal(${emp.id})">✎</button>
+                        <button style="background: #f44336; color: white; padding: 6px 10px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer;" onclick="deleteEmployee(${emp.id})">✕</button>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        function downloadPDF() {
+            const year = document.getElementById('year').value;
+            const firma = document.getElementById('firmenname').value;
+            const months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+
+            let html = `<h1>${firma} - Urlaubsplaner ${year}</h1>`;
+
+            months.forEach((month, idx) => {
+                const daysInMonth = new Date(year, idx + 1, 0).getDate();
+                html += `<h2>${month}</h2><table border="1" cellpadding="2" style="font-size: 10px; width: 100%; margin: 20px 0;">`;
+                html += '<tr><th>' + month + '</th>';
+                for (let d = 1; d <= daysInMonth; d++) {
+                    html += `<th>${d}</th>`;
+                }
+                html += '</tr>';
+
+                employees.forEach(emp => {
+                    html += `<tr><td><b>${emp.name}</b></td>`;
+                    for (let d = 1; d <= daysInMonth; d++) {
+                        const dateStr = new Date(year, idx, d).toISOString().split('T')[0];
+                        const status = emp.data[dateStr] || 'normal';
+                        const symbol = { vacation: '✓', pending: '!', sick: '✗', holiday: '●' }[status] || '';
+                        html += `<td style="text-align: center;">${symbol}</td>`;
+                    }
+                    html += '</tr>';
+                });
+                html += '</table>';
+            });
+
+            const element = document.createElement('div');
+            element.innerHTML = html;
+            html2pdf().set({ filename: `Urlaubsplaner_${year}.pdf` }).from(element).save();
+        }
+
+        function printYear() {
+            window.print();
+        }
+
+        // Start
+        init();
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto; background: #f5f5f5; padding: 15px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #027c45 0%, #03a54e 100%); color: white; padding: 30px; display: flex; align-items: center; gap: 20px; }
+        .logo-img { width: 70px; height: 70px; background: rgba(255,255,255,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 50px; }
+        .header-text h1 { font-size: 28px; font-weight: 600; }
+        .config-section { padding: 20px 30px; background: #f9f9f9; border-bottom: 1px solid #e0e0e0; }
+        .config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .config-item { display: flex; flex-direction: column; }
+        .config-item label { font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+        .config-item input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; }
+        .main-content { padding: 30px; }
+        .button-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        button { padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .btn-primary { background: #027c45; color: white; }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-secondary { background: #f5f5f5; color: #333; border: 1px solid #ddd; }
+        .year-title { font-size: 24px; font-weight: 600; margin: 20px 0; color: #027c45; }
+        .month-tabs { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; border-bottom: 2px solid #e0e0e0; }
+        .month-tab { padding: 8px 16px; background: #f5f5f5; border: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 12px; font-weight: 600; }
+        .month-tab.active { background: #027c45; color: white; }
+        .calendar-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 20px 0; }
+        .calendar-table th { background: #027c45; color: white; padding: 10px 4px; text-align: center; font-weight: 600; }
+        .calendar-table td { border: 1px solid #e0e0e0; padding: 3px 2px; text-align: center; height: 26px; }
+        .calendar-table td.weekend { background: #e8e8e8; }
+        .employee-name { background: #f5f5f5; font-weight: 600; text-align: left; padding-left: 10px; color: #027c45; min-width: 140px; }
+        .day { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border-radius: 3px; cursor: pointer; }
+        .day.vacation { background: #4caf50; color: white; font-weight: 600; }
+        .day.pending { background: #ffc107; color: #333; font-weight: 600; }
+        .day.sick { background: #f44336; color: white; font-weight: 600; }
+        .day.holiday { background: #9c27b0; color: white; font-weight: 600; }
+        .management-section { margin-top: 40px; padding-top: 30px; border-top: 2px solid #e0e0e0; }
+        .section-title { font-size: 16px; font-weight: 600; margin-bottom: 15px; color: #027c45; cursor: pointer; user-select: none; }
+        .section-title::before { content: '▶ '; display: inline-block; transition: transform 0.2s; margin-right: 5px; }
+        .section-title.expanded::before { transform: rotate(90deg); }
+        .employee-list-container { display: none; }
+        .employee-list-container.active { display: block; }
+        .employee-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        .employee-card { background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 6px; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .employee-info { flex: 1; }
+        .employee-info h3 { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+        .employee-info p { font-size: 12px; color: #666; }
+        .employee-stats { display: flex; gap: 10px; font-size: 12px; margin-top: 5px; }
+        .stat { background: white; padding: 4px 8px; border-radius: 3px; border-left: 3px solid #027c45; }
+        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: white; border-radius: 8px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+        .modal-content h2 { font-size: 18px; margin-bottom: 20px; color: #027c45; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        .modal-buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .modal-buttons button { flex: 1; }
+    </style>
+</body>
+</html>
