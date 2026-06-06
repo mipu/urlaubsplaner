@@ -508,12 +508,22 @@
 
             try {
                 if (next === 'normal') {
-                    await db.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
+                    const { error } = await db.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
+                    if (error) {
+                        console.error('Delete error:', error);
+                    } else {
+                        console.log(`✓ Deleted ${empId} on ${dateStr}`);
+                    }
                 } else {
-                    await db.from('vacation_entries').upsert({ employee_id: empId, entry_date: dateStr, status: next });
+                    const { error } = await db.from('vacation_entries').upsert({ employee_id: empId, entry_date: dateStr, status: next });
+                    if (error) {
+                        console.error('Upsert error:', error);
+                    } else {
+                        console.log(`✓ Saved ${status} for ${empId} on ${dateStr}`);
+                    }
                 }
             } catch (e) {
-                console.error('Fehler beim Speichern:', e.message);
+                console.error('Exception:', e.message);
             }
         }
 
