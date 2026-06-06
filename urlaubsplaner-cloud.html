@@ -493,9 +493,16 @@
             const current = emp.data[dateStr] || 'normal';
             const next = { normal: 'vacation', vacation: 'pending', pending: 'sick', sick: 'normal' }[current];
 
-            emp.data[dateStr] = next;
+            // Update local data
+            if (next === 'normal') {
+                delete emp.data[dateStr]; // Lösche komplett aus local data
+            } else {
+                emp.data[dateStr] = next;
+            }
+
             div.className = `day ${next}`;
             div.textContent = { vacation: '✓', pending: '!', sick: '✗', holiday: '●' }[next] || '';
+            renderEmployeeList(); // Update stats
 
             if (!db) return;
 
@@ -618,6 +625,8 @@
 
             employees.forEach(emp => {
                 const vac = Object.values(emp.data).filter(s => s === 'vacation').length;
+                const pending = Object.values(emp.data).filter(s => s === 'pending').length;
+                const sick = Object.values(emp.data).filter(s => s === 'sick').length;
                 const card = document.createElement('div');
                 card.className = 'employee-card';
                 card.innerHTML = `
@@ -626,6 +635,8 @@
                         <p>${emp.department}</p>
                         <div class="employee-stats">
                             <div class="stat">Urlaub: <span class="stat-value">${vac}/${emp.vacationDays}</span></div>
+                            <div class="stat">Beantragt: <span class="stat-value">${pending}</span></div>
+                            <div class="stat">Krank: <span class="stat-value">${sick}</span></div>
                         </div>
                     </div>
                     <div style="display: flex; gap: 8px; flex-direction: column;">
