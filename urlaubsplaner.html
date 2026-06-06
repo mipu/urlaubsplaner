@@ -699,6 +699,76 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
+        // ===== SUPABASE CLOUD-SYNC =====
+        let supabaseClient = null;
+
+        async function initSupabase() {
+            let attempts = 0;
+            while (!window.supabase && attempts < 100) {
+                await new Promise(r => setTimeout(r, 50));
+                attempts++;
+            }
+            if (window.supabase) {
+                supabaseClient = window.supabase.createClient(
+                    'https://sbjexeclzmktghbdeqhy.supabase.co',
+                    'sb_publishable_c5-P105ibFtFB4pyLllOMw_KBR74OYT'
+                );
+                syncFromSupabase();
+                subscribeToSupabase();
+            }
+        }
+
+        async function syncFromSupabase() {
+            try {
+                const { data: emps } = await supabaseClient.from('employees').select('*');
+                const { data: vacs } = await supabaseClient.from('vacation_entries').select('*');
+
+                if (emps && emps.length > 0) {
+                    const synced = emps.map(e => ({
+                        id: e.id,
+                        name: e.name,
+                        department: e.department,
+                        vacationDays: e.vacation_days,
+                        data: {}
+                    }));
+
+                    vacs?.forEach(v => {
+                        const emp = synced.find(e => e.id === v.employee_id);
+                        if (emp) emp.data[v.entry_date] = v.status;
+                    });
+
+                    localStorage.setItem('employees', JSON.stringify(synced));
+                    location.reload();
+                }
+            } catch (e) {
+                console.log('Supabase Sync Error');
+            }
+        }
+
+        function subscribeToSupabase() {
+            if (!supabaseClient) return;
+            supabaseClient
+                .channel('public:vacation_entries')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'vacation_entries' }, () => syncFromSupabase())
+                .subscribe();
+        }
+
+        async function pushToSupabase(empId, dateStr, status) {
+            if (!supabaseClient) return;
+            try {
+                if (status === 'normal') {
+                    await supabaseClient.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
+                } else {
+                    await supabaseClient.from('vacation_entries').upsert({ employee_id: empId, entry_date: dateStr, status });
+                }
+            } catch (e) {
+                console.log('Supabase Push Error');
+            }
+        }
+
+        initSupabase();
+    </script>
+    <script>
         // ===== STANDARD MITARBEITERLISTE =====
         const DEFAULT_EMPLOYEES = [
             { id: 1, name: 'Anna Schmidt', department: 'Leitung', vacationDays: 25, data: {} },
@@ -1035,7 +1105,7 @@
             }
         }
 
-        async function cycleStatus(employeeId, dateStr, cell, dayDiv) {
+        function cycleStatus(employeeId, dateStr, cell, dayDiv) {
             const emp = employees.find(e => e.id === employeeId);
             if (!emp) return;
 
@@ -1050,38 +1120,16 @@
                 default: next = 'normal';
             }
 
-            try {
-                if (next === 'normal') {
-                    // Löschen wenn normal
-                    const { error } = await supabase
-                        .from('vacation_entries')
-                        .delete()
-                        .eq('employee_id', employeeId)
-                        .eq('entry_date', dateStr);
+            emp.data[dateStr] = next;
+            cell.classList.remove('vacation', 'pending', 'sick', 'normal');
+            dayDiv.className = `day ${next}`;
+            dayDiv.textContent = getStatusSymbol(next);
+            saveEmployees();
+            renderEmployeeList();
 
-                    if (error) throw error;
-                } else {
-                    // Upsert - erstelle oder aktualisiere
-                    const { error } = await supabase
-                        .from('vacation_entries')
-                        .upsert({
-                            employee_id: employeeId,
-                            entry_date: dateStr,
-                            status: next,
-                            updated_at: new Date().toISOString()
-                        });
-
-                    if (error) throw error;
-                }
-
-                emp.data[dateStr] = next;
-                cell.classList.remove('vacation', 'pending', 'sick', 'normal');
-                dayDiv.className = `day ${next}`;
-                dayDiv.textContent = getStatusSymbol(next);
-                renderEmployeeList();
-            } catch (error) {
-                console.error('Fehler beim Speichern des Status:', error);
-                alert('Fehler: ' + error.message);
+            // Async Supabase-Sync (im Hintergrund, blockiert nicht)
+            if (supabaseClient) {
+                pushToSupabase(employeeId, dateStr, next);
             }
         }
 
