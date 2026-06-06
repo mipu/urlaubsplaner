@@ -183,6 +183,19 @@
         async function loadData() {
             if (!db) return;
             try {
+                // Lade Config
+                const { data: configData } = await db.from('config').select('*').single();
+                if (configData) {
+                    document.getElementById('firmenname').value = configData.firma_name || 'Beispiel GmbH';
+                    document.getElementById('year').value = configData.year || 2027;
+                    document.getElementById('firmennameDisplay').textContent = configData.firma_name || 'Beispiel GmbH';
+                    document.getElementById('yearDisplay').textContent = configData.year || 2027;
+                    if (configData.logo_image) {
+                        localStorage.setItem('logoImage', configData.logo_image);
+                    }
+                }
+
+                // Lade Mitarbeiter
                 const { data: emps } = await db.from('employees').select('*').order('id');
                 const { data: vacs } = await db.from('vacation_entries').select('*');
 
@@ -212,16 +225,34 @@
         }
 
         function setupEvents() {
-            document.getElementById('firmenname').addEventListener('change', () => {
-                document.getElementById('firmennameDisplay').textContent = document.getElementById('firmenname').value;
-            });
+            document.getElementById('firmenname').addEventListener('change', saveConfig);
             document.getElementById('year').addEventListener('change', () => {
+                saveConfig();
                 document.getElementById('yearDisplay').textContent = document.getElementById('year').value;
                 renderCalendarForMonth(currentMonth);
             });
             document.getElementById('logoUpload').addEventListener('change', handleLogoUpload);
             document.getElementById('germanHolidays').addEventListener('change', toggleGermanHolidays);
             loadLogo();
+        }
+
+        async function saveConfig() {
+            const firma_name = document.getElementById('firmenname').value;
+            const year = parseInt(document.getElementById('year').value);
+
+            document.getElementById('firmennameDisplay').textContent = firma_name;
+
+            if (!db) return;
+
+            try {
+                await db.from('config').update({
+                    firma_name,
+                    year,
+                    updated_at: new Date().toISOString()
+                }).eq('id', 1);
+            } catch (e) {
+                console.error('Fehler beim Speichern:', e.message);
+            }
         }
 
         function calculateGermanHolidays(year) {
@@ -314,11 +345,23 @@
             }
 
             const reader = new FileReader();
-            reader.onload = (event) => {
+            reader.onload = async (event) => {
                 const base64 = event.target.result;
                 localStorage.setItem('logoImage', base64);
                 updateLogoDisplay();
                 document.getElementById('logoUpload').value = '';
+
+                // Sync zu Supabase
+                if (db) {
+                    try {
+                        await db.from('config').update({
+                            logo_image: base64,
+                            updated_at: new Date().toISOString()
+                        }).eq('id', 1);
+                    } catch (e) {
+                        console.error('Logo-Fehler:', e.message);
+                    }
+                }
             };
             reader.readAsDataURL(file);
         }
@@ -348,10 +391,21 @@
 
         function watchChanges() {
             if (!db) return;
+
             db.channel('vacation_changes')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'vacation_entries' }, () => {
-                    console.log('Remote change detected, reloading...');
+                    console.log('Remote vacation change detected, reloading...');
                     loadData().then(() => renderUI());
+                })
+                .subscribe();
+
+            db.channel('config_changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'config' }, () => {
+                    console.log('Remote config change detected, reloading...');
+                    loadData().then(() => {
+                        updateLogoDisplay();
+                        renderUI();
+                    });
                 })
                 .subscribe();
         }
