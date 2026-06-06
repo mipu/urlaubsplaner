@@ -53,6 +53,8 @@
                 <button onclick="openAddEmployeeModal()" class="btn-primary">+ Mitarbeiter hinzufügen</button>
                 <button onclick="downloadPDF()" class="btn-primary">💾 PDF speichern</button>
                 <button onclick="printYear()" class="btn-secondary">🖨️ Drucken</button>
+                <button onclick="exportJSON()" class="btn-secondary">📥 Daten exportieren</button>
+                <button onclick="importJSON()" class="btn-secondary">📤 Daten importieren</button>
             </div>
 
             <h2 class="year-title">Jahresplan 2027</h2>
@@ -613,6 +615,87 @@
 
         function printYear() {
             window.print();
+        }
+
+        function exportJSON() {
+            const data = {
+                employees: employees.map(e => ({
+                    id: e.id,
+                    name: e.name,
+                    department: e.department,
+                    vacationDays: e.vacationDays
+                })),
+                vacations: []
+            };
+
+            employees.forEach(emp => {
+                Object.entries(emp.data).forEach(([date, status]) => {
+                    data.vacations.push({
+                        employee_id: emp.id,
+                        entry_date: date,
+                        status: status
+                    });
+                });
+            });
+
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `urlaubsplaner-${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+        }
+
+        function importJSON() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'application/json';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+
+                        if (!db) {
+                            alert('Datenbankverbindung nicht verfügbar');
+                            return;
+                        }
+
+                        // Import Mitarbeiter
+                        if (data.employees) {
+                            for (const emp of data.employees) {
+                                await db.from('employees').upsert({
+                                    id: emp.id,
+                                    name: emp.name,
+                                    department: emp.department || 'Allgemein',
+                                    vacation_days: emp.vacationDays || 20
+                                });
+                            }
+                        }
+
+                        // Import Urlaubsdaten
+                        if (data.vacations) {
+                            for (const vac of data.vacations) {
+                                await db.from('vacation_entries').upsert({
+                                    employee_id: vac.employee_id,
+                                    entry_date: vac.entry_date,
+                                    status: vac.status
+                                });
+                            }
+                        }
+
+                        alert('Daten erfolgreich importiert!');
+                        await loadData();
+                        renderUI();
+                    } catch (err) {
+                        alert('Fehler beim Importieren: ' + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
         }
 
         // Start
