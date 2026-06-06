@@ -57,7 +57,7 @@
                 <button onclick="importJSON()" class="btn-secondary">📤 Daten importieren</button>
             </div>
 
-            <h2 class="year-title">Jahresplan 2027</h2>
+            <h2 class="year-title" id="yearTitleDisplay">Jahresplan 2027</h2>
 
             <div class="legend">
                 <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
@@ -186,10 +186,12 @@
                 // Lade Config
                 const { data: configData } = await db.from('config').select('*').single();
                 if (configData) {
+                    const year = configData.year || 2027;
                     document.getElementById('firmenname').value = configData.firma_name || 'Beispiel GmbH';
-                    document.getElementById('year').value = configData.year || 2027;
+                    document.getElementById('year').value = year;
                     document.getElementById('firmennameDisplay').textContent = configData.firma_name || 'Beispiel GmbH';
-                    document.getElementById('yearDisplay').textContent = configData.year || 2027;
+                    document.getElementById('yearDisplay').textContent = year;
+                    document.getElementById('yearTitleDisplay').textContent = `Jahresplan ${year}`;
                     if (configData.logo_image) {
                         localStorage.setItem('logoImage', configData.logo_image);
                     }
@@ -227,8 +229,10 @@
         function setupEvents() {
             document.getElementById('firmenname').addEventListener('change', saveConfig);
             document.getElementById('year').addEventListener('change', () => {
+                const year = document.getElementById('year').value;
                 saveConfig();
-                document.getElementById('yearDisplay').textContent = document.getElementById('year').value;
+                document.getElementById('yearDisplay').textContent = year;
+                document.getElementById('yearTitleDisplay').textContent = `Jahresplan ${year}`;
                 renderCalendarForMonth(currentMonth);
             });
             document.getElementById('logoUpload').addEventListener('change', handleLogoUpload);
