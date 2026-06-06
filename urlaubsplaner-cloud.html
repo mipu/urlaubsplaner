@@ -28,6 +28,13 @@
                     <input type="text" id="firmenname" value="Beispiel GmbH">
                 </div>
                 <div class="config-item">
+                    <label>Logo-Datei (PNG, JPG):</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="file" id="logoUpload" accept="image/*" style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                        <button onclick="clearLogo()" style="padding: 8px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">Zurücksetzen</button>
+                    </div>
+                </div>
+                <div class="config-item">
                     <label>Planungsjahr:</label>
                     <input type="number" id="year" value="2027" min="2020" max="2050">
                 </div>
@@ -169,6 +176,55 @@
             document.getElementById('year').addEventListener('change', () => {
                 renderCalendarForMonth(currentMonth);
             });
+            document.getElementById('logoUpload').addEventListener('change', handleLogoUpload);
+            loadLogo();
+        }
+
+        function handleLogoUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            if (file.size > 500000) {
+                alert('Datei zu groß (max. 500KB)');
+                return;
+            }
+
+            if (!file.type.startsWith('image/')) {
+                alert('Nur Bilddateien erlaubt');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64 = event.target.result;
+                localStorage.setItem('logoImage', base64);
+                updateLogoDisplay();
+                document.getElementById('logoUpload').value = '';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function loadLogo() {
+            const logo = localStorage.getItem('logoImage');
+            if (logo) {
+                updateLogoDisplay();
+            }
+        }
+
+        function updateLogoDisplay() {
+            const logo = localStorage.getItem('logoImage');
+            const display = document.getElementById('logoDisplay');
+            if (logo) {
+                display.innerHTML = `<img src="${logo}" style="width: 100%; height: 100%; object-fit: contain;">`;
+            } else {
+                display.textContent = '🏢';
+            }
+        }
+
+        function clearLogo() {
+            localStorage.removeItem('logoImage');
+            document.getElementById('logoUpload').value = '';
+            document.getElementById('logoDisplay').textContent = '🏢';
         }
 
         function watchChanges() {
