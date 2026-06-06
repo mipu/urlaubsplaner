@@ -508,21 +508,14 @@
 
             try {
                 if (next === 'normal') {
-                    const { error } = await db
-                        .from('vacation_entries')
-                        .delete()
-                        .match({ employee_id: empId, entry_date: dateStr });
-                    if (error) {
-                        console.error('Delete error:', error);
-                    } else {
-                        console.log(`✓ Deleted ${empId} on ${dateStr}`);
-                    }
+                    // Nicht speichern wenn normal - einfach löschen vom local data reicht
+                    console.log(`✓ Cleared ${empId} on ${dateStr}`);
                 } else {
                     const { error } = await db.from('vacation_entries').upsert({ employee_id: empId, entry_date: dateStr, status: next });
                     if (error) {
                         console.error('Upsert error:', error);
                     } else {
-                        console.log(`✓ Saved ${status} for ${empId} on ${dateStr}`);
+                        console.log(`✓ Saved ${next} for ${empId} on ${dateStr}`);
                     }
                 }
             } catch (e) {
