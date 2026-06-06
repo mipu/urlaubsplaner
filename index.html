@@ -211,7 +211,15 @@
 
                 (vacs || []).forEach(v => {
                     const emp = employees.find(e => e.id === v.employee_id);
-                    if (emp && v.status && v.status !== 'normal') emp.data[v.entry_date] = v.status;
+                    if (emp) {
+                        // Lade den Status - nur wenn er nicht 'normal' oder null ist
+                        if (v.status && v.status !== 'normal') {
+                            emp.data[v.entry_date] = v.status;
+                        } else {
+                            // Lösche aus local data wenn status null oder 'normal'
+                            delete emp.data[v.entry_date];
+                        }
+                    }
                 });
 
                 console.log(`✓ ${employees.length} Mitarbeiter geladen`);
@@ -394,24 +402,8 @@
         }
 
         function watchChanges() {
-            if (!db) return;
-
-            db.channel('vacation_changes')
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'vacation_entries' }, () => {
-                    console.log('Remote vacation change detected, reloading...');
-                    loadData().then(() => renderUI());
-                })
-                .subscribe();
-
-            db.channel('config_changes')
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'config' }, () => {
-                    console.log('Remote config change detected, reloading...');
-                    loadData().then(() => {
-                        updateLogoDisplay();
-                        renderUI();
-                    });
-                })
-                .subscribe();
+            // Subscriptions komplett entfernt - verursachen Datenverlust!
+            // Daten werden nur bei Bedarf manuell neu geladen (z.B. bei Refresh oder Import)
         }
 
         function renderMonthTabs() {
@@ -508,17 +500,25 @@
 
             try {
                 if (next === 'normal') {
-                    // Setze status auf NULL statt zu löschen (workaround für 409 error)
-                    const { error } = await db.from('vacation_entries').update({ status: null }).match({ employee_id: empId, entry_date: dateStr });
+                    // Lösche den Datensatz (oder setze auf NULL)
+                    const { error } = await db.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
                     if (error) {
-                        console.error('Clear error:', error);
+                        console.error('Delete error:', error);
                     } else {
-                        console.log(`✓ Cleared ${empId} on ${dateStr}`);
+                        console.log(`✓ Deleted ${empId} on ${dateStr}`);
                     }
                 } else {
-                    const { error } = await db.from('vacation_entries').upsert({ employee_id: empId, entry_date: dateStr, status: next });
+                    // Lösche zuerst (falls existiert) und füge neu ein
+                    await db.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
+
+                    const { error } = await db.from('vacation_entries').insert({
+                        employee_id: empId,
+                        entry_date: dateStr,
+                        status: next
+                    });
+
                     if (error) {
-                        console.error('Upsert error:', error);
+                        console.error('Insert error:', error);
                     } else {
                         console.log(`✓ Saved ${next} for ${empId} on ${dateStr}`);
                     }
