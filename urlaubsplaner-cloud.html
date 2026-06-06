@@ -211,7 +211,7 @@
 
                 (vacs || []).forEach(v => {
                     const emp = employees.find(e => e.id === v.employee_id);
-                    if (emp) emp.data[v.entry_date] = v.status;
+                    if (emp && v.status !== 'normal') emp.data[v.entry_date] = v.status;
                 });
 
                 console.log(`✓ ${employees.length} Mitarbeiter geladen`);
