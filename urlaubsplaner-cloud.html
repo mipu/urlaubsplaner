@@ -508,7 +508,10 @@
 
             try {
                 if (next === 'normal') {
-                    const { error } = await db.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
+                    const { error } = await db
+                        .from('vacation_entries')
+                        .delete()
+                        .match({ employee_id: empId, entry_date: dateStr });
                     if (error) {
                         console.error('Delete error:', error);
                     } else {
