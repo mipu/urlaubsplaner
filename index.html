@@ -95,7 +95,6 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
-            margin-top: 10px;
         }
 
         .config-item {
@@ -700,65 +699,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
-        // ===== SUPABASE INIT =====
-        let supabaseClient = null;
-
-        async function initSupabaseClient() {
-            let attempts = 0;
-            while (!window.supabase && attempts < 100) {
-                await new Promise(r => setTimeout(r, 50));
-                attempts++;
-            }
-            if (window.supabase) {
-                supabaseClient = window.supabase.createClient(
-                    'https://sbjexeclzmktghbdeqhy.supabase.co',
-                    'sb_publishable_c5-P105ibFtFB4pyLllOMw_KBR74OYT'
-                );
-            }
-            return supabaseClient;
-        }
-
-        async function loadEmployeesFromSupabase() {
-            if (!supabaseClient) return null;
-            try {
-                const { data: emps } = await supabaseClient.from('employees').select('*').order('id');
-                const { data: vacs } = await supabaseClient.from('vacation_entries').select('*');
-
-                if (!emps) return null;
-
-                const result = emps.map(e => ({
-                    id: e.id,
-                    name: e.name,
-                    department: e.department || 'Allgemein',
-                    vacationDays: e.vacation_days || 20,
-                    data: {}
-                }));
-
-                vacs?.forEach(v => {
-                    const emp = result.find(e => e.id === v.employee_id);
-                    if (emp) emp.data[v.entry_date] = v.status;
-                });
-
-                return result;
-            } catch (e) {
-                console.log('Load error:', e.message);
-                return null;
-            }
-        }
-
-        async function saveToSupabase(empId, dateStr, status) {
-            if (!supabaseClient) return;
-            try {
-                if (status === 'normal') {
-                    await supabaseClient.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
-                } else {
-                    await supabaseClient.from('vacation_entries').upsert({ employee_id: empId, entry_date: dateStr, status });
-                }
-            } catch (e) {
-                console.log('Save error:', e.message);
-            }
-        }
-
         // ===== STANDARD MITARBEITERLISTE =====
         const DEFAULT_EMPLOYEES = [
             { id: 1, name: 'Anna Schmidt', department: 'Leitung', vacationDays: 25, data: {} },
@@ -1703,4 +1643,3 @@
     </script>
 </body>
 </html>
-<!-- Updated Sat Jun  6 14:20:06     2026 -->
