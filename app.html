@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Urlaubsplaner</title>
+    <script async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0"></script>
+    <style>
+        body { font-family: Arial; background: #f5f5f5; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        h1 { color: #027c45; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 11px; }
+        th, td { border: 1px solid #ddd; padding: 5px; text-align: center; }
+        th { background: #027c45; color: white; }
+        .name { text-align: left; background: #f9f9f9; font-weight: bold; min-width: 120px; }
+        .weekend { background: #efefef; }
+        .day { cursor: pointer; border-radius: 3px; padding: 2px; }
+        .vacation { background: #4caf50; color: white; }
+        .pending { background: #ffc107; }
+        .sick { background: #f44336; color: white; }
+        .holiday { background: #9c27b0; color: white; }
+        .buttons { margin: 20px 0; }
+        button { padding: 8px 15px; background: #027c45; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
+        button:hover { opacity: 0.9; }
+        .error { color: red; padding: 10px; background: #ffebee; border-radius: 4px; }
+        .loading { color: #666; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📅 Urlaubsplaner 2027</h1>
+        <div id="status" class="loading">Verbinde mit Supabase...</div>
+        <div class="buttons">
+            <button onclick="prevMonth()">← Monat</button>
+            <span id="monthName"></span>
+            <button onclick="nextMonth()">Monat →</button>
+        </div>
+        <div id="calendar"></div>
+    </div>
+
+    <script>
+        let employees = [];
+        let vacations = {};
+        let month = new Date().getMonth();
+        let year = 2027;
+        let client = null;
+
+        async function init() {
+            try {
+                // Warte auf Supabase
+                let attempts = 0;
+                while (!window.supabase && attempts < 100) {
+                    await new Promise(r => setTimeout(r, 50));
+                    attempts++;
+                }
+
+                if (!window.supabase) {
+                    throw new Error('Supabase konnte nicht geladen werden');
+                }
+
+                client = window.supabase.createClient(
+                    'https://sbjexeclzmktghbdeqhy.supabase.co',
+                    'sb_publishable_c5-P105ibFtFB4pyLllOMw_KBR74OYT'
+                );
+
+                // Lade Mitarbeiter
+                let { data: emps, error: err1 } = await client.from('employees').select('*');
+                if (err1) throw err1;
+                employees = emps || [];
+
+                // Lade Urlaubsdaten
+                let { data: vacs, error: err2 } = await client.from('vacation_entries').select('*');
+                if (err2) throw err2;
+
+                vacs?.forEach(v => {
+                    vacations[`${v.employee_id}|${v.entry_date}`] = v.status;
+                });
+
+                document.getElementById('status').textContent = `✓ ${employees.length} Mitarbeiter geladen`;
+                render();
+
+            } catch (e) {
+                document.getElementById('status').innerHTML = `<span class="error">❌ Fehler: ${e.message}</span>`;
+                console.error(e);
+            }
+        }
+
+        function render() {
+            const months = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+            document.getElementById('monthName').textContent = months[month] + ' ' + year;
+
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0).getDate();
+            let html = '<table><tr><th class="name">' + months[month] + '</th>';
+
+            for (let d = 1; d <= lastDay; d++) {
+                const date = new Date(year, month, d);
+                const dow = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][date.getDay()];
+                html += `<th>${d}<br>${dow}</th>`;
+            }
+            html += '</tr>';
+
+            employees.forEach(emp => {
+                html += `<tr><td class="name">${emp.name}</td>`;
+                for (let d = 1; d <= lastDay; d++) {
+                    const dateStr = new Date(year, month, d).toISOString().split('T')[0];
+                    const key = `${emp.id}|${dateStr}`;
+                    const status = vacations[key] || 'normal';
+                    const isWeekend = [0, 6].includes(new Date(year, month, d).getDay());
+                    const symbol = { vacation: '✓', pending: '!', sick: '✗', holiday: '●' }[status] || '';
+                    html += `<td class="${isWeekend ? 'weekend' : ''} day ${status}" onclick="toggle(${emp.id}, '${dateStr}')">${symbol}</td>`;
+                }
+                html += '</tr>';
+            });
+
+            document.getElementById('calendar').innerHTML = html + '</table>';
+        }
+
+        async function toggle(empId, dateStr) {
+            const key = `${empId}|${dateStr}`;
+            const current = vacations[key] || 'normal';
+            const next = { normal: 'vacation', vacation: 'pending', pending: 'sick', sick: 'normal' }[current];
+
+            try {
+                if (next === 'normal') {
+                    await client.from('vacation_entries').delete().eq('employee_id', empId).eq('entry_date', dateStr);
+                    delete vacations[key];
+                } else {
+                    await client.from('vacation_entries').upsert({ employee_id: empId, entry_date: dateStr, status: next });
+                    vacations[key] = next;
+                }
+                render();
+            } catch (e) {
+                alert('Fehler: ' + e.message);
+            }
+        }
+
+        function prevMonth() {
+            month--;
+            if (month < 0) { month = 11; year--; }
+            render();
+        }
+
+        function nextMonth() {
+            month++;
+            if (month > 11) { month = 0; year++; }
+            render();
+        }
+
+        init();
+    </script>
+</body>
+</html>
